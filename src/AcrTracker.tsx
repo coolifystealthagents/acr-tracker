@@ -125,5 +125,91 @@ export function AcrTracker({
     };
   }, [handleScroll]);
 
+  // Outbound link click tracking
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      const anchor = (e.target as HTMLElement).closest?.('a');
+      if (!anchor) return;
+
+      const href = anchor.href;
+      if (!href) return;
+
+      try {
+        const linkUrl = new URL(href, window.location.origin);
+        const isOutbound = linkUrl.hostname !== window.location.hostname;
+        const isDownload = /\.(pdf|zip|doc|docx|xls|xlsx|csv|ppt|pptx)$/i.test(linkUrl.pathname);
+        const isMailto = href.startsWith('mailto:');
+        const isTel = href.startsWith('tel:');
+
+        if (isOutbound || isDownload || isMailto || isTel) {
+          trackerRef.current?.track(
+            isOutbound ? 'outbound_click' : isDownload ? 'download_click' : isMailto ? 'mailto_click' : 'tel_click',
+            {
+              link_url: href,
+              link_text: (anchor.textContent || '').slice(0, 200).trim(),
+              link_domain: isOutbound ? linkUrl.hostname : '',
+              link_classes: anchor.className || '',
+              link_id: anchor.id || '',
+            }
+          );
+        }
+      } catch {
+        // Invalid URL, skip
+      }
+    };
+
+    document.addEventListener('click', handleClick, { capture: true });
+    return () => {
+      document.removeEventListener('click', handleClick, { capture: true });
+    };
+  }, []);
+
+  // Form interaction tracking
+  useEffect(() => {
+    const handleSubmit = (e: SubmitEvent) => {
+      const form = e.target as HTMLFormElement;
+      if (!form?.tagName || form.tagName !== 'FORM') return;
+
+      trackerRef.current?.track('form_submit', {
+        form_id: form.id || '',
+        form_action: form.action || '',
+        form_method: form.method || '',
+        form_name: form.getAttribute('name') || '',
+        form_classes: form.className || '',
+        field_count: form.elements.length,
+      });
+    };
+
+    document.addEventListener('submit', handleSubmit, { capture: true });
+    return () => {
+      document.removeEventListener('submit', handleSubmit, { capture: true });
+    };
+  }, []);
+
+  // JS error tracking
+  useEffect(() => {
+    const handleError = (e: ErrorEvent) => {
+      trackerRef.current?.track('js_error', {
+        error_message: e.message || '',
+        error_source: e.filename || '',
+        error_line: e.lineno || 0,
+        error_col: e.colno || 0,
+      });
+    };
+
+    const handleRejection = (e: PromiseRejectionEvent) => {
+      trackerRef.current?.track('unhandled_rejection', {
+        error_message: String(e.reason?.message || e.reason || ''),
+      });
+    };
+
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleRejection);
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
+  }, []);
+
   return null;
 }

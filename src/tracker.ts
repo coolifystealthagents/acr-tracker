@@ -4,6 +4,7 @@ import {
   getSessionId,
   getUtmParams,
   getPageMeta,
+  getDeviceContext,
 } from './utils';
 
 export interface Tracker {
@@ -28,6 +29,9 @@ export function createTracker(config: TrackerConfig): Tracker {
   let flushTimer: ReturnType<typeof setInterval> | null = null;
   let pageLoadTime: number | null = null;
   let isBot = false;
+  let engagementStart = Date.now();
+  let engagementMs = 0;
+  let isVisible = true;
 
   // Bot detection: if the page loaded suspiciously fast (< 500ms)
   if (typeof performance !== 'undefined') {
@@ -40,10 +44,20 @@ export function createTracker(config: TrackerConfig): Tracker {
     }
   }
 
+  // Cache device context once per tracker init (doesn't change per event)
+  const deviceContext = typeof window !== 'undefined' ? getDeviceContext() : {};
+
   function log(...args: unknown[]) {
     if (debug) {
       console.log('[acr-tracker]', ...args);
     }
+  }
+
+  function getEngagementTime(): number {
+    if (isVisible) {
+      return engagementMs + (Date.now() - engagementStart);
+    }
+    return engagementMs;
   }
 
   function buildEvent(
@@ -52,6 +66,22 @@ export function createTracker(config: TrackerConfig): Tracker {
   ): TrackEvent {
     const utmParams = getUtmParams();
     const pageMeta = getPageMeta();
+
+    // Merge device context + any extra metadata
+    let mergedMeta: Record<string, unknown> = {
+      ...deviceContext,
+      engagement_time_ms: getEngagementTime(),
+    };
+
+    // If extra has event_metadata, parse and merge it
+    if (extra.event_metadata) {
+      try {
+        const parsed = JSON.parse(extra.event_metadata);
+        mergedMeta = { ...mergedMeta, ...parsed };
+      } catch {
+        mergedMeta.raw_metadata = extra.event_metadata;
+      }
+    }
 
     return {
       event_type: eventType,
@@ -72,8 +102,8 @@ export function createTracker(config: TrackerConfig): Tracker {
       scroll_depth: 0,
       time_on_page: pageLoadTime ? Math.round(performance.now() - pageLoadTime) : 0,
       event_value: '',
-      event_metadata: '',
       ...extra,
+      event_metadata: JSON.stringify(mergedMeta),
     };
   }
 
@@ -140,7 +170,7 @@ export function createTracker(config: TrackerConfig): Tracker {
     if (isBot) return;
 
     const event = buildEvent(eventType, {
-      event_metadata: metadata ? JSON.stringify(metadata) : '',
+      event_metadata: metadata ? JSON.stringify(metadata) : '{}',
     });
 
     enqueue(event);
@@ -176,10 +206,19 @@ export function createTracker(config: TrackerConfig): Tracker {
     enqueue(event);
   }
 
-  // Handle page unload
+  // Handle page visibility (engagement time + flush)
   function handleVisibilityChange(): void {
     if (document.visibilityState === 'hidden') {
+      // Accumulate engagement time
+      if (isVisible) {
+        engagementMs += Date.now() - engagementStart;
+        isVisible = false;
+      }
       flushBeacon();
+    } else {
+      // Page became visible again
+      engagementStart = Date.now();
+      isVisible = true;
     }
   }
 

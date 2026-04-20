@@ -111,3 +111,36 @@ export function getPageMeta(): {
     };
   }
 }
+
+/**
+ * Capture rich device and browser context.
+ * Included in every event's metadata for maximum detail.
+ */
+export function getDeviceContext(): Record<string, unknown> {
+  try {
+    const nav = navigator as Navigator & {
+      connection?: { effectiveType?: string; downlink?: number; rtt?: number };
+    };
+
+    return {
+      language: nav.language || '',
+      languages: Array.from(nav.languages || []),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      viewport_width: window.innerWidth,
+      viewport_height: window.innerHeight,
+      pixel_ratio: window.devicePixelRatio || 1,
+      color_depth: screen.colorDepth,
+      touch_support: nav.maxTouchPoints > 0,
+      connection_type: nav.connection?.effectiveType || '',
+      connection_downlink: nav.connection?.downlink ?? null,
+      connection_rtt: nav.connection?.rtt ?? null,
+      pdf_viewer: nav.pdfViewerEnabled ?? null,
+      hardware_concurrency: nav.hardwareConcurrency || null,
+      cookie_enabled: nav.cookieEnabled,
+      do_not_track: nav.doNotTrack === '1',
+      online: nav.onLine,
+    };
+  } catch {
+    return {};
+  }
+}
