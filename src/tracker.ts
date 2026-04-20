@@ -1,4 +1,4 @@
-import type { TrackerConfig, TrackEvent, TrackPayload } from './types';
+import type { TrackerConfig, TrackEvent, TrackPayload, LeadData, FunnelStep } from './types';
 import {
   getAnonymousId,
   getSessionId,
@@ -12,11 +12,54 @@ export interface Tracker {
   trackPageView: () => void;
   trackScrollDepth: (depth: number) => void;
   trackCWV: (metric: { name: string; value: number }) => void;
+  trackLead: (data: LeadData) => void;
+  checkFunnelStep: () => void;
   flush: () => void;
   destroy: () => void;
 }
 
 let defaultTracker: Tracker | null = null;
+
+/** Default 3-step lead funnel for ACR sites */
+const DEFAULT_FUNNEL_STEPS: FunnelStep[] = [
+  { path: '/contact-us', step: 1, label: 'Form Page', event: 'funnel_form_page' },
+  { path: '/thank-you', step: 2, label: 'Form Submitted', event: 'funnel_form_submitted' },
+  { path: '/thanks-whats-next', step: 3, label: 'Booking Confirmed', event: 'funnel_booking_confirmed' },
+];
+
+const LANDING_PAGE_KEY = '_acr_lp';
+const LANDING_REF_KEY = '_acr_lr';
+
+/**
+ * Record the landing page (first page of the visit).
+ * Only set once per session.
+ */
+function recordLandingPage(): void {
+  try {
+    if (!sessionStorage.getItem(LANDING_PAGE_KEY)) {
+      sessionStorage.setItem(LANDING_PAGE_KEY, window.location.href);
+      sessionStorage.setItem(LANDING_REF_KEY, document.referrer || '(direct)');
+    }
+  } catch {
+    // sessionStorage unavailable
+  }
+}
+
+function getLandingPage(): string {
+  try {
+    return sessionStorage.getItem(LANDING_PAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function getLandingReferrer(): string {
+  try {
+    return sessionStorage.getItem(LANDING_REF_KEY) || '';
+  } catch {
+    return '';
+  }
+}
 
 /**
  * Create an analytics tracker instance.
@@ -24,6 +67,7 @@ let defaultTracker: Tracker | null = null;
 export function createTracker(config: TrackerConfig): Tracker {
   const { siteId, endpoint, apiUrl, batchInterval = 5000, debug = false } = config;
   const trackUrl = endpoint || `${apiUrl}/api/track`;
+  const funnelSteps = config.funnelSteps || DEFAULT_FUNNEL_STEPS;
 
   let queue: TrackEvent[] = [];
   let flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -42,6 +86,11 @@ export function createTracker(config: TrackerConfig): Tracker {
         console.log('[acr-tracker] Bot detected, skipping tracking');
       }
     }
+  }
+
+  // Record landing page on init
+  if (typeof window !== 'undefined') {
+    recordLandingPage();
   }
 
   // Cache device context once per tracker init (doesn't change per event)
@@ -67,10 +116,12 @@ export function createTracker(config: TrackerConfig): Tracker {
     const utmParams = getUtmParams();
     const pageMeta = getPageMeta();
 
-    // Merge device context + any extra metadata
+    // Merge device context + attribution + any extra metadata
     let mergedMeta: Record<string, unknown> = {
       ...deviceContext,
       engagement_time_ms: getEngagementTime(),
+      landing_page: getLandingPage(),
+      landing_referrer: getLandingReferrer(),
     };
 
     // If extra has event_metadata, parse and merge it
@@ -206,6 +257,73 @@ export function createTracker(config: TrackerConfig): Tracker {
     enqueue(event);
   }
 
+  /**
+   * Track a lead submission with detailed contact/form data.
+   * Immediately flushes — lead events are time-sensitive.
+   */
+  function trackLead(data: LeadData): void {
+    if (isBot) return;
+
+    const event = buildEvent('lead_submit', {
+      event_value: data.source || '',
+      event_metadata: JSON.stringify({
+        lead_name: data.name || '',
+        lead_email: data.email || '',
+        lead_phone: data.phone || '',
+        lead_message: data.message || '',
+        lead_source: data.source || '',
+        lead_form_id: data.formId || '',
+        // Include any extra fields
+        ...Object.fromEntries(
+          Object.entries(data).filter(
+            ([k]) => !['name', 'email', 'phone', 'message', 'source', 'formId'].includes(k)
+          )
+        ),
+      }),
+    });
+
+    enqueue(event);
+    // Immediately flush — leads are time-sensitive
+    flush();
+    log('Lead tracked and flushed immediately');
+  }
+
+  /**
+   * Check if the current page matches a funnel step and fire the event.
+   * Called automatically on each page view.
+   */
+  function checkFunnelStep(): void {
+    if (isBot) return;
+
+    const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
+    if (!currentPath) return;
+
+    for (const step of funnelSteps) {
+      const matches = step.path.endsWith('*')
+        ? currentPath.startsWith(step.path.slice(0, -1))
+        : currentPath === step.path;
+
+      if (matches) {
+        const event = buildEvent(step.event, {
+          event_value: `step_${step.step}`,
+          event_metadata: JSON.stringify({
+            funnel_step: step.step,
+            funnel_label: step.label,
+            funnel_path: step.path,
+          }),
+        });
+        enqueue(event);
+        log(`Funnel step ${step.step} matched: ${step.label} (${step.path})`);
+
+        // For conversion steps (step 3+), flush immediately
+        if (step.step >= 3) {
+          flush();
+        }
+        break;
+      }
+    }
+  }
+
   // Handle page visibility (engagement time + flush)
   function handleVisibilityChange(): void {
     if (document.visibilityState === 'hidden') {
@@ -252,6 +370,8 @@ export function createTracker(config: TrackerConfig): Tracker {
     trackPageView,
     trackScrollDepth,
     trackCWV,
+    trackLead,
+    checkFunnelStep,
     flush,
     destroy,
   };
@@ -277,4 +397,19 @@ export function track(
     return;
   }
   defaultTracker.track(eventType, metadata);
+}
+
+/**
+ * Track a lead using the default tracker instance.
+ * Immediately flushes — lead events are time-sensitive.
+ * Must call createTracker() first.
+ */
+export function trackLead(data: LeadData): void {
+  if (!defaultTracker) {
+    console.warn(
+      '[acr-tracker] No tracker initialized. Call createTracker() first.'
+    );
+    return;
+  }
+  defaultTracker.trackLead(data);
 }

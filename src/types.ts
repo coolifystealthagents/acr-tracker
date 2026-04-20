@@ -1,3 +1,14 @@
+export interface FunnelStep {
+  /** URL path pattern (exact match or starts-with if ends with *) */
+  path: string;
+  /** Step number in the funnel (1-based) */
+  step: number;
+  /** Human-readable label */
+  label: string;
+  /** Event name to emit */
+  event: string;
+}
+
 export interface TrackerConfig {
   siteId: string;
   /** Full tracking endpoint path (e.g., '/ingest/track' for proxy mode) */
@@ -6,6 +17,29 @@ export interface TrackerConfig {
   apiUrl?: string;
   batchInterval?: number; // ms, default 5000
   debug?: boolean;
+  /**
+   * Conversion funnel steps. When the user navigates to a matching path,
+   * the tracker automatically fires the corresponding funnel event.
+   * Default: standard ACR 3-step lead funnel.
+   */
+  funnelSteps?: FunnelStep[];
+}
+
+export interface LeadData {
+  /** Contact name */
+  name?: string;
+  /** Contact email */
+  email?: string;
+  /** Contact phone */
+  phone?: string;
+  /** Form message / inquiry */
+  message?: string;
+  /** Which CTA / form source (e.g., 'homepage-hero', 'contact-page') */
+  source?: string;
+  /** The form element ID or name */
+  formId?: string;
+  /** Any additional fields */
+  [key: string]: unknown;
 }
 
 export interface TrackEvent {

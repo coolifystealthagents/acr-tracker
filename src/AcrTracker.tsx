@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { usePathname } from 'next/navigation';
 import { createTracker, type Tracker } from './tracker';
-import type { TrackerConfig } from './types';
+import type { TrackerConfig, FunnelStep } from './types';
 
 export interface AcrTrackerProps {
   siteId: string;
@@ -13,6 +13,8 @@ export interface AcrTrackerProps {
   apiUrl?: string;
   batchInterval?: number;
   debug?: boolean;
+  /** Custom funnel steps (default: ACR 3-step lead funnel) */
+  funnelSteps?: FunnelStep[];
 }
 
 const SCROLL_THRESHOLDS = [25, 50, 75, 100];
@@ -23,6 +25,7 @@ export function AcrTracker({
   apiUrl,
   batchInterval,
   debug,
+  funnelSteps,
 }: AcrTrackerProps) {
   const pathname = usePathname();
   const trackerRef = useRef<Tracker | null>(null);
@@ -37,12 +40,14 @@ export function AcrTracker({
       apiUrl,
       batchInterval,
       debug,
+      funnelSteps,
     };
 
     trackerRef.current = createTracker(config);
 
-    // Track initial page view
+    // Track initial page view + check funnel
     trackerRef.current.trackPageView();
+    trackerRef.current.checkFunnelStep();
 
     // Load Core Web Vitals
     import('web-vitals')
@@ -86,6 +91,7 @@ export function AcrTracker({
     reachedThresholdsRef.current.clear();
 
     trackerRef.current?.trackPageView();
+    trackerRef.current?.checkFunnelStep();
   }, [pathname]);
 
   // Scroll depth tracking
