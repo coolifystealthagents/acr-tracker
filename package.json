@@ -1,6 +1,6 @@
 {
   "name": "@acr/tracker",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lightweight first-party analytics tracker for ACR sites",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

@@ -170,12 +170,147 @@ export function AcrTracker({
     };
   }, []);
 
-  // Form interaction tracking
+  // Form view detection — fire form_view when a page has forms
+  const trackedFormsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
+    // Reset tracked forms on route change
+    trackedFormsRef.current.clear();
+
+    function getFormFingerprint(form: HTMLFormElement, idx: number): string {
+      return `${form.id || ''}|${form.getAttribute('name') || ''}|${form.action || ''}|${idx}`;
+    }
+
+    function getFormMeta(form: HTMLFormElement, idx: number) {
+      const rect = form.getBoundingClientRect();
+      return {
+        form_id: form.id || '',
+        form_name: form.getAttribute('name') || '',
+        form_action: form.action || '',
+        form_classes: form.className || '',
+        form_index: idx,
+        field_count: form.elements.length,
+        form_visible: rect.width > 0 && rect.height > 0,
+        form_position_y: Math.round(rect.top + window.scrollY),
+      };
+    }
+
+    function scanForms() {
+      const forms = document.querySelectorAll('form');
+      forms.forEach((form, idx) => {
+        const fp = getFormFingerprint(form as HTMLFormElement, idx);
+        if (trackedFormsRef.current.has(fp)) return;
+        trackedFormsRef.current.add(fp);
+
+        const meta = getFormMeta(form as HTMLFormElement, idx);
+        trackerRef.current?.track('form_view', {
+          ...meta,
+          forms_on_page: forms.length,
+        });
+      });
+    }
+
+    // Scan after a short delay to let the page render
+    const timer = setTimeout(scanForms, 500);
+
+    // Also watch for dynamically inserted forms
+    const observer = new MutationObserver((mutations) => {
+      let hasNewForm = false;
+      for (const m of mutations) {
+        for (const node of Array.from(m.addedNodes)) {
+          if (node instanceof HTMLFormElement) {
+            hasNewForm = true;
+          } else if (node instanceof HTMLElement && node.querySelector('form')) {
+            hasNewForm = true;
+          }
+        }
+      }
+      if (hasNewForm) scanForms();
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [pathname]);
+
+  // CTA click tracking — detect button/link clicks and store for form attribution
+  useEffect(() => {
+    const CTA_PATTERNS = /\b(get.started|book|schedule|sign.up|register|subscribe|contact|free.trial|request|demo|apply|join|start|try|learn.more|find.out|call|hire|pricing)\b/i;
+
+    function isCTA(el: HTMLElement): boolean {
+      // Buttons outside forms are CTAs
+      if (el.tagName === 'BUTTON' && !el.closest('form')) return true;
+      // Links/buttons with CTA-like classes
+      const classes = el.className || '';
+      if (/\b(cta|btn|button|hero|action)\b/i.test(classes)) return true;
+      // Links/buttons with CTA-like text
+      const text = (el.textContent || '').trim();
+      if (text.length > 0 && text.length < 80 && CTA_PATTERNS.test(text)) return true;
+      // Elements with role="button"
+      if (el.getAttribute('role') === 'button') return true;
+      return false;
+    }
+
+    function getCtaInfo(el: HTMLElement) {
+      const text = (el.textContent || '').slice(0, 200).trim();
+      const href = (el as HTMLAnchorElement).href || '';
+      return {
+        cta_text: text,
+        cta_tag: el.tagName.toLowerCase(),
+        cta_id: el.id || '',
+        cta_classes: (el.className || '').slice(0, 200),
+        cta_href: href,
+        cta_position_y: Math.round(el.getBoundingClientRect().top + window.scrollY),
+      };
+    }
+
+    const handleCtaClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Walk up to find the CTA element (button or anchor)
+      const el = target.closest('a, button, [role="button"]') as HTMLElement | null;
+      if (!el || !isCTA(el)) return;
+
+      const info = getCtaInfo(el);
+      trackerRef.current?.track('cta_click', info);
+
+      // Store last CTA for form attribution
+      try {
+        sessionStorage.setItem('_acr_last_cta', JSON.stringify({
+          text: info.cta_text,
+          href: info.cta_href,
+          id: info.cta_id,
+          timestamp: Date.now(),
+        }));
+      } catch { /* sessionStorage unavailable */ }
+    };
+
+    document.addEventListener('click', handleCtaClick, { capture: true });
+    return () => {
+      document.removeEventListener('click', handleCtaClick, { capture: true });
+    };
+  }, []);
+
+  // Form interaction tracking — includes CTA attribution
+  useEffect(() => {
+    function getLastCta(): Record<string, unknown> | null {
+      try {
+        const raw = sessionStorage.getItem('_acr_last_cta');
+        if (!raw) return null;
+        const cta = JSON.parse(raw);
+        // Only attribute if CTA was clicked within last 30 minutes
+        if (Date.now() - cta.timestamp > 30 * 60 * 1000) return null;
+        return cta;
+      } catch { return null; }
+    }
+
     const handleSubmit = (e: SubmitEvent) => {
       const form = e.target as HTMLFormElement;
       if (!form?.tagName || form.tagName !== 'FORM') return;
 
+      const lastCta = getLastCta();
       trackerRef.current?.track('form_submit', {
         form_id: form.id || '',
         form_action: form.action || '',
@@ -183,6 +318,11 @@ export function AcrTracker({
         form_name: form.getAttribute('name') || '',
         form_classes: form.className || '',
         field_count: form.elements.length,
+        ...(lastCta ? {
+          attributed_cta_text: lastCta.text,
+          attributed_cta_href: lastCta.href,
+          attributed_cta_id: lastCta.id,
+        } : {}),
       });
     };
 
