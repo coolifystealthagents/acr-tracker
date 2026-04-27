@@ -77,15 +77,24 @@ export function createTracker(config: TrackerConfig): Tracker {
   let engagementMs = 0;
   let isVisible = true;
 
-  // Bot detection: if the page loaded suspiciously fast (< 500ms)
+  // Bot detection: check for headless browser indicators
+  if (typeof window !== 'undefined') {
+    const nav = navigator as Navigator & { webdriver?: boolean };
+    // navigator.webdriver is true in automated browsers (Puppeteer, Playwright, Selenium)
+    if (nav.webdriver) {
+      isBot = true;
+    }
+  }
   if (typeof performance !== 'undefined') {
     pageLoadTime = performance.now();
-    if (pageLoadTime < 500) {
+    // Only flag as bot if page loaded impossibly fast (<50ms) — a sign of headless execution.
+    // Normal cached pages can load in 200-800ms; 500ms threshold was too aggressive.
+    if (pageLoadTime < 50) {
       isBot = true;
-      if (debug) {
-        console.log('[acr-tracker] Bot detected, skipping tracking');
-      }
     }
+  }
+  if (isBot && debug) {
+    console.log('[acr-tracker] Bot detected, skipping tracking');
   }
 
   // Record landing page on init

@@ -147,14 +147,20 @@ function createTracker(config) {
   let engagementStart = Date.now();
   let engagementMs = 0;
   let isVisible = true;
+  if (typeof window !== "undefined") {
+    const nav = navigator;
+    if (nav.webdriver) {
+      isBot = true;
+    }
+  }
   if (typeof performance !== "undefined") {
     pageLoadTime = performance.now();
-    if (pageLoadTime < 500) {
+    if (pageLoadTime < 50) {
       isBot = true;
-      if (debug) {
-        console.log("[acr-tracker] Bot detected, skipping tracking");
-      }
     }
+  }
+  if (isBot && debug) {
+    console.log("[acr-tracker] Bot detected, skipping tracking");
   }
   if (typeof window !== "undefined") {
     recordLandingPage();
