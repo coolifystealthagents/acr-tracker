@@ -274,12 +274,16 @@
     log('Lead tracked and flushed immediately');
   }
 
+  // Normalize path: strip trailing slash for consistent matching (WordPress uses trailing slashes)
+  function normPath(p) { return p.length > 1 && p.charAt(p.length - 1) === '/' ? p.slice(0, -1) : p; }
+
   function checkFunnelStep() {
     if (isBot) return;
-    var path = location.pathname;
+    var path = normPath(location.pathname);
     for (var i = 0; i < FUNNEL.length; i++) {
       var s = FUNNEL[i];
-      var matches = s.path.endsWith('*') ? path.indexOf(s.path.slice(0, -1)) === 0 : path === s.path;
+      var sp = normPath(s.path);
+      var matches = s.path.endsWith('*') ? path.indexOf(s.path.slice(0, -1)) === 0 : path === sp;
       if (matches) {
         enqueue(buildEvent(s.event, {
           event_value: 'step_' + s.step,

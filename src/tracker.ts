@@ -301,16 +301,22 @@ export function createTracker(config: TrackerConfig): Tracker {
    * Check if the current page matches a funnel step and fire the event.
    * Called automatically on each page view.
    */
+  /** Strip trailing slash for consistent funnel matching (WordPress uses trailing slashes). */
+  function normPath(p: string): string {
+    return p.length > 1 && p.endsWith('/') ? p.slice(0, -1) : p;
+  }
+
   function checkFunnelStep(): void {
     if (isBot) return;
 
-    const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
+    const currentPath = typeof window !== 'undefined' ? normPath(window.location.pathname) : '';
     if (!currentPath) return;
 
     for (const step of funnelSteps) {
+      const stepPath = normPath(step.path);
       const matches = step.path.endsWith('*')
         ? currentPath.startsWith(step.path.slice(0, -1))
-        : currentPath === step.path;
+        : currentPath === stepPath;
 
       if (matches) {
         const event = buildEvent(step.event, {
