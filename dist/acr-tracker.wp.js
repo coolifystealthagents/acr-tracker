@@ -465,6 +465,120 @@
     flush(); // Forms are conversion-critical — flush immediately
   }, true);
 
+  // 6b. WPForms AJAX submission detection
+  // WPForms uses AJAX and prevents native form submit. Detect via:
+  // - jQuery event 'wpformsAjaxSubmitSuccess' (if jQuery available)
+  // - MutationObserver watching for .wpforms-confirmation-container (fallback)
+  (function () {
+    var wpformsTracked = {};
+
+    function trackWpformSubmit(formEl) {
+      if (!formEl) return;
+      var formId = formEl.id || formEl.getAttribute('data-formid') || '';
+      // Deduplicate within same session
+      var key = formId + '|' + getSessionId();
+      if (wpformsTracked[key]) return;
+      wpformsTracked[key] = true;
+
+      var lastCta = null;
+      try {
+        var raw = sessionStorage.getItem('_acr_last_cta');
+        if (raw) {
+          lastCta = JSON.parse(raw);
+          if (Date.now() - lastCta.timestamp > 30 * 60 * 1000) lastCta = null;
+        }
+      } catch (e) {}
+
+      // Try to extract form field values (name, email, phone, message)
+      var leadData = {};
+      try {
+        var inputs = formEl.querySelectorAll('input, textarea, select');
+        for (var i = 0; i < inputs.length; i++) {
+          var input = inputs[i];
+          var name = (input.getAttribute('name') || '').toLowerCase();
+          var val = input.value || '';
+          if (!val) continue;
+          if (name.indexOf('name') > -1 || name.indexOf('first') > -1) leadData.lead_name = (leadData.lead_name || '') + ' ' + val;
+          else if (name.indexOf('email') > -1) leadData.lead_email = val;
+          else if (name.indexOf('phone') > -1 || name.indexOf('tel') > -1) leadData.lead_phone = val;
+          else if (name.indexOf('message') > -1 || name.indexOf('comment') > -1 || input.tagName === 'TEXTAREA') leadData.lead_message = val;
+        }
+        if (leadData.lead_name) leadData.lead_name = leadData.lead_name.trim();
+      } catch (e) {}
+
+      var meta = {
+        form_id: formId,
+        form_plugin: 'wpforms',
+        form_name: formEl.getAttribute('data-name') || formEl.getAttribute('name') || '',
+        form_classes: formEl.className || '',
+        field_count: formEl.elements ? formEl.elements.length : 0
+      };
+      // Merge lead data
+      for (var k in leadData) meta[k] = leadData[k];
+      if (lastCta) {
+        meta.attributed_cta_text = lastCta.text;
+        meta.attributed_cta_href = lastCta.href;
+        meta.attributed_cta_id = lastCta.id;
+      }
+
+      track('form_submit', meta);
+
+      // Also fire as lead_submit if we captured contact info
+      if (leadData.lead_email || leadData.lead_phone || leadData.lead_name) {
+        trackLead({
+          name: leadData.lead_name || '',
+          email: leadData.lead_email || '',
+          phone: leadData.lead_phone || '',
+          message: leadData.lead_message || '',
+          source: 'wpforms',
+          formId: formId
+        });
+      } else {
+        flush(); // Still flush immediately for form submissions
+      }
+
+      log('WPForms submission tracked:', formId);
+    }
+
+    // Method 1: jQuery event (preferred — WPForms fires this)
+    if (typeof jQuery !== 'undefined') {
+      jQuery(document).on('wpformsAjaxSubmitSuccess', function (e, response) {
+        // Find the form that was submitted
+        var formEl = null;
+        try {
+          if (response && response.data && response.data.form_id) {
+            formEl = document.getElementById('wpforms-form-' + response.data.form_id)
+                  || document.querySelector('[data-formid="' + response.data.form_id + '"]');
+          }
+        } catch (ex) {}
+        if (!formEl) formEl = document.querySelector('.wpforms-form');
+        trackWpformSubmit(formEl);
+      });
+    }
+
+    // Method 2: MutationObserver for confirmation container (catches non-jQuery too)
+    if (typeof MutationObserver !== 'undefined') {
+      new MutationObserver(function (mutations) {
+        for (var i = 0; i < mutations.length; i++) {
+          var added = mutations[i].addedNodes;
+          for (var j = 0; j < added.length; j++) {
+            var node = added[j];
+            if (node.nodeType !== 1) continue;
+            var isConfirm = (node.classList && node.classList.contains('wpforms-confirmation-container'))
+                         || (node.querySelector && node.querySelector('.wpforms-confirmation-container'));
+            if (isConfirm) {
+              // Find the parent form or sibling form
+              var formEl = node.closest ? node.closest('.wpforms-container') : null;
+              if (formEl) formEl = formEl.querySelector('.wpforms-form');
+              if (!formEl) formEl = document.querySelector('.wpforms-form');
+              trackWpformSubmit(formEl);
+            }
+          }
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    }
+  })();
+
   // 7. JS error tracking
   window.addEventListener('error', function (e) {
     track('js_error', {
