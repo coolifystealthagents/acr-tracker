@@ -223,13 +223,16 @@
   function flushBeacon() {
     if (!queue.length) return;
     var payload = { site_id: SITE_ID, events: queue.slice() };
+    var backup = queue.slice();
     queue = [];
     var body = JSON.stringify(payload);
     log('Beacon flush', payload.events.length, 'events');
+    var sent = false;
     if (navigator.sendBeacon) {
-      navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'application/json' }));
-    } else {
-      try { fetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).catch(function () {}); } catch (e) {}
+      try { sent = navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'application/json' })); } catch (e) { sent = false; }
+    }
+    if (!sent) {
+      try { fetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).catch(function () { queue = backup.concat(queue); }); } catch (e) {}
     }
   }
 
@@ -275,7 +278,7 @@
   }
 
   // Normalize path: strip trailing slash for consistent matching (WordPress uses trailing slashes)
-  function normPath(p) { return p.length > 1 && p.charAt(p.length - 1) === '/' ? p.slice(0, -1) : p; }
+  function normPath(p) { var lp = p.toLowerCase(); return lp.length > 1 && lp.charAt(lp.length - 1) === '/' ? lp.slice(0, -1) : lp; }
 
   function checkFunnelStep() {
     if (isBot) return;
@@ -330,7 +333,8 @@
       var scrollTop = window.scrollY || document.documentElement.scrollTop;
       var docHeight = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
       var winHeight = window.innerHeight;
-      var pct = Math.round((scrollTop / (docHeight - winHeight)) * 100);
+      var scrollable = docHeight - winHeight;
+      var pct = scrollable > 0 ? Math.round((scrollTop / scrollable) * 100) : 100;
       for (var i = 0; i < scrollThresholds.length; i++) {
         var t = scrollThresholds[i];
         if (pct >= t && !reachedThresholds[t]) {

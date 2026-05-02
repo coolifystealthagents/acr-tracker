@@ -242,20 +242,28 @@ function createTracker(config) {
       site_id: siteId,
       events: [...queue]
     };
+    const backup = [...queue];
     queue = [];
     const url = trackUrl;
     const body = JSON.stringify(payload);
     log("Beacon flush", payload.events.length, "events");
+    let sent = false;
     if (typeof navigator !== "undefined" && navigator.sendBeacon) {
-      const blob = new Blob([body], { type: "application/json" });
-      navigator.sendBeacon(url, blob);
-    } else {
+      try {
+        const blob = new Blob([body], { type: "application/json" });
+        sent = navigator.sendBeacon(url, blob);
+      } catch {
+        sent = false;
+      }
+    }
+    if (!sent) {
       fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
         keepalive: true
       }).catch(() => {
+        queue = backup.concat(queue);
       });
     }
   }
@@ -317,12 +325,17 @@ function createTracker(config) {
     flush();
     log("Lead tracked and flushed immediately");
   }
+  function normPath(p) {
+    const lower = p.toLowerCase();
+    return lower.length > 1 && lower.endsWith("/") ? lower.slice(0, -1) : lower;
+  }
   function checkFunnelStep() {
     if (isBot) return;
-    const currentPath = typeof window !== "undefined" ? window.location.pathname : "";
+    const currentPath = typeof window !== "undefined" ? normPath(window.location.pathname) : "";
     if (!currentPath) return;
     for (const step of funnelSteps) {
-      const matches = step.path.endsWith("*") ? currentPath.startsWith(step.path.slice(0, -1)) : currentPath === step.path;
+      const stepPath = normPath(step.path);
+      const matches = step.path.endsWith("*") ? currentPath.startsWith(step.path.slice(0, -1)) : currentPath === stepPath;
       if (matches) {
         const event = buildEvent(step.event, {
           event_value: `step_${step.step}`,
@@ -471,9 +484,8 @@ function AcrTracker({
         document.documentElement.scrollHeight
       );
       const winHeight = window.innerHeight;
-      const scrollPercent = Math.round(
-        scrollTop / (docHeight - winHeight) * 100
-      );
+      const scrollableHeight = docHeight - winHeight;
+      const scrollPercent = scrollableHeight > 0 ? Math.round(scrollTop / scrollableHeight * 100) : 100;
       for (const threshold of SCROLL_THRESHOLDS) {
         if (scrollPercent >= threshold && !reachedThresholdsRef.current.has(threshold)) {
           reachedThresholdsRef.current.add(threshold);

@@ -199,22 +199,33 @@ export function createTracker(config: TrackerConfig): Tracker {
       events: [...queue],
     };
 
+    const backup = [...queue];
     queue = [];
     const url = trackUrl;
     const body = JSON.stringify(payload);
 
     log('Beacon flush', payload.events.length, 'events');
 
+    let sent = false;
     if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-      const blob = new Blob([body], { type: 'application/json' });
-      navigator.sendBeacon(url, blob);
-    } else {
+      try {
+        const blob = new Blob([body], { type: 'application/json' });
+        sent = navigator.sendBeacon(url, blob);
+      } catch {
+        sent = false;
+      }
+    }
+
+    if (!sent) {
       fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
         keepalive: true,
-      }).catch(() => {});
+      }).catch(() => {
+        // Restore queue so next flush can retry
+        queue = backup.concat(queue);
+      });
     }
   }
 
@@ -301,9 +312,10 @@ export function createTracker(config: TrackerConfig): Tracker {
    * Check if the current page matches a funnel step and fire the event.
    * Called automatically on each page view.
    */
-  /** Strip trailing slash for consistent funnel matching (WordPress uses trailing slashes). */
+  /** Normalize path for funnel matching: lowercase + strip trailing slash. */
   function normPath(p: string): string {
-    return p.length > 1 && p.endsWith('/') ? p.slice(0, -1) : p;
+    const lower = p.toLowerCase();
+    return lower.length > 1 && lower.endsWith('/') ? lower.slice(0, -1) : lower;
   }
 
   function checkFunnelStep(): void {

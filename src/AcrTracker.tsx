@@ -106,9 +106,10 @@ export function AcrTracker({
         document.documentElement.scrollHeight
       );
       const winHeight = window.innerHeight;
-      const scrollPercent = Math.round(
-        (scrollTop / (docHeight - winHeight)) * 100
-      );
+      const scrollableHeight = docHeight - winHeight;
+      const scrollPercent = scrollableHeight > 0
+        ? Math.round((scrollTop / scrollableHeight) * 100)
+        : 100;
 
       for (const threshold of SCROLL_THRESHOLDS) {
         if (
