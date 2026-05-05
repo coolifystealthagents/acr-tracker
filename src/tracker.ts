@@ -1,4 +1,4 @@
-import type { TrackerConfig, TrackEvent, TrackPayload, LeadData, FunnelStep } from './types';
+import type { TrackerConfig, TrackEvent, TrackPayload, LeadData, FunnelStep, TrackLeadFromFormOptions } from './types';
 import {
   getAnonymousId,
   getSessionId,
@@ -439,4 +439,81 @@ export function trackLead(data: LeadData): void {
     return;
   }
   defaultTracker.trackLead(data);
+}
+
+/**
+ * Common field-name aliases mapped to standard LeadData keys.
+ * Handles variations like firstName/first_name -> name, etc.
+ */
+const FIELD_ALIASES: Record<string, string> = {
+  firstname: '_firstName',
+  first_name: '_firstName',
+  lastname: '_lastName',
+  last_name: '_lastName',
+  email: 'email',
+  phone: 'phone',
+  phonenumber: 'phone',
+  phone_number: 'phone',
+  message: 'message',
+  comments: 'message',
+  inquiry: 'message',
+};
+
+/**
+ * Extract all named fields from a form element and track as a lead.
+ * Auto-captures every field, skipping hidden tracking fields (prefixed with _).
+ * Merges firstName + lastName into name automatically.
+ */
+export function trackLeadFromForm(
+  form: HTMLFormElement,
+  options?: TrackLeadFromFormOptions
+): void {
+  if (!defaultTracker) {
+    console.warn(
+      '[acr-tracker] No tracker initialized. Call createTracker() first.'
+    );
+    return;
+  }
+
+  const skipPrefix = options?.skipPrefix ?? '_';
+  const fd = new FormData(form);
+  const data: Record<string, unknown> = {};
+  let firstName = '';
+  let lastName = '';
+
+  fd.forEach((value, key) => {
+    // Skip hidden tracking/internal fields
+    if (key.startsWith(skipPrefix)) return;
+    // Skip empty values
+    const strVal = String(value).trim();
+    if (!strVal) return;
+
+    const alias = FIELD_ALIASES[key.toLowerCase()];
+    if (alias === '_firstName') {
+      firstName = strVal;
+    } else if (alias === '_lastName') {
+      lastName = strVal;
+    } else if (alias) {
+      data[alias] = strVal;
+    } else {
+      data[key] = strVal;
+    }
+  });
+
+  // Merge first + last name
+  const fullName = [firstName, lastName].filter(Boolean).join(' ');
+  if (fullName) {
+    data.name = fullName;
+  }
+
+  // Apply overrides
+  const overrides = options?.overrides ?? {};
+  const leadData: LeadData = {
+    source: form.id || form.getAttribute('name') || 'form',
+    formId: form.id || form.getAttribute('name') || 'form',
+    ...data,
+    ...overrides,
+  };
+
+  defaultTracker.trackLead(leadData);
 }

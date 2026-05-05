@@ -39,6 +39,12 @@ interface LeadData {
     /** Any additional fields */
     [key: string]: unknown;
 }
+interface TrackLeadFromFormOptions {
+    /** Override or supplement extracted form fields */
+    overrides?: Partial<LeadData>;
+    /** Form field name prefix to skip (default: '_') */
+    skipPrefix?: string;
+}
 interface TrackEvent {
     event_type: string;
     timestamp: string;
@@ -107,5 +113,11 @@ declare function track(eventType: string, metadata?: Record<string, unknown>): v
  * Must call createTracker() first.
  */
 declare function trackLead(data: LeadData): void;
+/**
+ * Extract all named fields from a form element and track as a lead.
+ * Auto-captures every field, skipping hidden tracking fields (prefixed with _).
+ * Merges firstName + lastName into name automatically.
+ */
+declare function trackLeadFromForm(form: HTMLFormElement, options?: TrackLeadFromFormOptions): void;
 
-export { AcrTracker, type FunnelStep, type LeadData, type TrackEvent, type TrackPayload, type TrackerConfig, createTracker, track, trackLead };
+export { AcrTracker, type FunnelStep, type LeadData, type TrackEvent, type TrackLeadFromFormOptions, type TrackPayload, type TrackerConfig, createTracker, track, trackLead, trackLeadFromForm };

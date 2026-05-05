@@ -1,3 +1,3 @@
 export { AcrTracker } from './AcrTracker';
-export { createTracker, track, trackLead } from './tracker';
-export type { TrackerConfig, TrackEvent, TrackPayload, LeadData, FunnelStep } from './types';
+export { createTracker, track, trackLead, trackLeadFromForm } from './tracker';
+export type { TrackerConfig, TrackEvent, TrackPayload, LeadData, FunnelStep, TrackLeadFromFormOptions } from './types';

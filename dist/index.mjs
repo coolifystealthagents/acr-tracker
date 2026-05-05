@@ -416,6 +416,59 @@ function trackLead(data) {
   }
   defaultTracker.trackLead(data);
 }
+var FIELD_ALIASES = {
+  firstname: "_firstName",
+  first_name: "_firstName",
+  lastname: "_lastName",
+  last_name: "_lastName",
+  email: "email",
+  phone: "phone",
+  phonenumber: "phone",
+  phone_number: "phone",
+  message: "message",
+  comments: "message",
+  inquiry: "message"
+};
+function trackLeadFromForm(form, options) {
+  if (!defaultTracker) {
+    console.warn(
+      "[acr-tracker] No tracker initialized. Call createTracker() first."
+    );
+    return;
+  }
+  const skipPrefix = options?.skipPrefix ?? "_";
+  const fd = new FormData(form);
+  const data = {};
+  let firstName = "";
+  let lastName = "";
+  fd.forEach((value, key) => {
+    if (key.startsWith(skipPrefix)) return;
+    const strVal = String(value).trim();
+    if (!strVal) return;
+    const alias = FIELD_ALIASES[key.toLowerCase()];
+    if (alias === "_firstName") {
+      firstName = strVal;
+    } else if (alias === "_lastName") {
+      lastName = strVal;
+    } else if (alias) {
+      data[alias] = strVal;
+    } else {
+      data[key] = strVal;
+    }
+  });
+  const fullName = [firstName, lastName].filter(Boolean).join(" ");
+  if (fullName) {
+    data.name = fullName;
+  }
+  const overrides = options?.overrides ?? {};
+  const leadData = {
+    source: form.id || form.getAttribute("name") || "form",
+    formId: form.id || form.getAttribute("name") || "form",
+    ...data,
+    ...overrides
+  };
+  defaultTracker.trackLead(leadData);
+}
 
 // src/AcrTracker.tsx
 var SCROLL_THRESHOLDS = [25, 50, 75, 100];
@@ -691,5 +744,6 @@ export {
   AcrTracker,
   createTracker,
   track,
-  trackLead
+  trackLead,
+  trackLeadFromForm
 };

@@ -42,6 +42,13 @@ export interface LeadData {
   [key: string]: unknown;
 }
 
+export interface TrackLeadFromFormOptions {
+  /** Override or supplement extracted form fields */
+  overrides?: Partial<LeadData>;
+  /** Form field name prefix to skip (default: '_') */
+  skipPrefix?: string;
+}
+
 export interface TrackEvent {
   event_type: string;
   timestamp: string;
