@@ -113,6 +113,8 @@ declare function track(eventType: string, metadata?: Record<string, unknown>): v
  * Must call createTracker() first.
  */
 declare function trackLead(data: LeadData): void;
+/** Store a FormData snapshot for a form. Called by AcrTracker's submit handler. */
+declare function _captureFormSnapshot(form: HTMLFormElement): void;
 /**
  * Extract all named fields from a form element and track as a lead.
  * Auto-captures every field, skipping hidden tracking fields (prefixed with _).
@@ -120,4 +122,4 @@ declare function trackLead(data: LeadData): void;
  */
 declare function trackLeadFromForm(form: HTMLFormElement, options?: TrackLeadFromFormOptions): void;
 
-export { AcrTracker, type FunnelStep, type LeadData, type TrackEvent, type TrackLeadFromFormOptions, type TrackPayload, type TrackerConfig, createTracker, track, trackLead, trackLeadFromForm };
+export { AcrTracker, type FunnelStep, type LeadData, type TrackEvent, type TrackLeadFromFormOptions, type TrackPayload, type TrackerConfig, _captureFormSnapshot, createTracker, track, trackLead, trackLeadFromForm };

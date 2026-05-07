@@ -442,6 +442,21 @@ export function trackLead(data: LeadData): void {
 }
 
 /**
+ * Pre-submit form data snapshots.
+ *
+ * React 19's useActionState resets form inputs before useEffect fires.
+ * The AcrTracker component captures FormData on the native 'submit' event
+ * (before React processes it) and stores it here. trackLeadFromForm uses
+ * the snapshot as a fallback when the live form has empty fields.
+ */
+const _formSnapshots = new WeakMap<HTMLFormElement, FormData>();
+
+/** Store a FormData snapshot for a form. Called by AcrTracker's submit handler. */
+export function _captureFormSnapshot(form: HTMLFormElement): void {
+  _formSnapshots.set(form, new FormData(form));
+}
+
+/**
  * Common field-name aliases mapped to standard LeadData keys.
  * Handles variations like firstName/first_name -> name, etc.
  */
@@ -476,7 +491,24 @@ export function trackLeadFromForm(
   }
 
   const skipPrefix = options?.skipPrefix ?? '_';
-  const fd = new FormData(form);
+
+  // Use live FormData, but fall back to the pre-submit snapshot for any
+  // empty values (React 19 useActionState resets text inputs before useEffect)
+  const liveFd = new FormData(form);
+  const snapshot = _formSnapshots.get(form);
+  // Merge: prefer live value, fall back to snapshot
+  const fd = new FormData();
+  const allKeys = new Set<string>();
+  liveFd.forEach((_, key) => allKeys.add(key));
+  if (snapshot) snapshot.forEach((_, key) => allKeys.add(key));
+  for (const key of allKeys) {
+    const liveVal = String(liveFd.get(key) ?? '').trim();
+    const snapVal = snapshot ? String(snapshot.get(key) ?? '').trim() : '';
+    fd.set(key, liveVal || snapVal);
+  }
+  // Clean up the snapshot after use
+  _formSnapshots.delete(form);
+
   const data: Record<string, unknown> = {};
   let firstName = '';
   let lastName = '';

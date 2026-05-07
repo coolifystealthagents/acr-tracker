@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { usePathname } from 'next/navigation';
-import { createTracker, type Tracker } from './tracker';
+import { createTracker, _captureFormSnapshot, type Tracker } from './tracker';
 import type { TrackerConfig, FunnelStep } from './types';
 
 export interface AcrTrackerProps {
@@ -311,6 +311,35 @@ export function AcrTracker({
       const form = e.target as HTMLFormElement;
       if (!form?.tagName || form.tagName !== 'FORM') return;
 
+      // Capture a full FormData snapshot BEFORE React clears the inputs.
+      // trackLeadFromForm() uses this snapshot as a fallback.
+      _captureFormSnapshot(form);
+
+      // Extract contact field values from form inputs
+      const fieldValues: Record<string, string> = {};
+      const namePatterns = ['name', 'full_name', 'fullname', 'your-name', 'your_name', 'first_name', 'firstname', 'contact_name', 'contactname'];
+      const emailPatterns = ['email', 'your-email', 'your_email', 'email_address', 'contact_email', 'mail'];
+      const phonePatterns = ['phone', 'tel', 'telephone', 'your-phone', 'your_phone', 'phone_number', 'mobile'];
+      const messagePatterns = ['message', 'your-message', 'your_message', 'comments', 'comment', 'inquiry', 'description', 'details'];
+
+      for (let i = 0; i < form.elements.length; i++) {
+        const el = form.elements[i] as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+        if (!el.name && !el.id) continue;
+        const key = (el.name || el.id).toLowerCase();
+        const val = el.value?.trim() || '';
+        if (!val) continue;
+
+        if (namePatterns.some(p => key.includes(p))) {
+          fieldValues.lead_name = fieldValues.lead_name || val;
+        } else if (emailPatterns.some(p => key.includes(p)) || el.type === 'email') {
+          fieldValues.lead_email = fieldValues.lead_email || val;
+        } else if (phonePatterns.some(p => key.includes(p)) || el.type === 'tel') {
+          fieldValues.lead_phone = fieldValues.lead_phone || val;
+        } else if (messagePatterns.some(p => key.includes(p))) {
+          fieldValues.lead_message = fieldValues.lead_message || val;
+        }
+      }
+
       const lastCta = getLastCta();
       trackerRef.current?.track('form_submit', {
         form_id: form.id || '',
@@ -319,6 +348,7 @@ export function AcrTracker({
         form_name: form.getAttribute('name') || '',
         form_classes: form.className || '',
         field_count: form.elements.length,
+        ...fieldValues,
         ...(lastCta ? {
           attributed_cta_text: lastCta.text,
           attributed_cta_href: lastCta.href,

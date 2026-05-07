@@ -416,6 +416,10 @@ function trackLead(data) {
   }
   defaultTracker.trackLead(data);
 }
+var _formSnapshots = /* @__PURE__ */ new WeakMap();
+function _captureFormSnapshot(form) {
+  _formSnapshots.set(form, new FormData(form));
+}
 var FIELD_ALIASES = {
   firstname: "_firstName",
   first_name: "_firstName",
@@ -437,7 +441,18 @@ function trackLeadFromForm(form, options) {
     return;
   }
   const skipPrefix = options?.skipPrefix ?? "_";
-  const fd = new FormData(form);
+  const liveFd = new FormData(form);
+  const snapshot = _formSnapshots.get(form);
+  const fd = new FormData();
+  const allKeys = /* @__PURE__ */ new Set();
+  liveFd.forEach((_, key) => allKeys.add(key));
+  if (snapshot) snapshot.forEach((_, key) => allKeys.add(key));
+  for (const key of allKeys) {
+    const liveVal = String(liveFd.get(key) ?? "").trim();
+    const snapVal = snapshot ? String(snapshot.get(key) ?? "").trim() : "";
+    fd.set(key, liveVal || snapVal);
+  }
+  _formSnapshots.delete(form);
   const data = {};
   let firstName = "";
   let lastName = "";
@@ -697,6 +712,28 @@ function AcrTracker({
     const handleSubmit = (e) => {
       const form = e.target;
       if (!form?.tagName || form.tagName !== "FORM") return;
+      _captureFormSnapshot(form);
+      const fieldValues = {};
+      const namePatterns = ["name", "full_name", "fullname", "your-name", "your_name", "first_name", "firstname", "contact_name", "contactname"];
+      const emailPatterns = ["email", "your-email", "your_email", "email_address", "contact_email", "mail"];
+      const phonePatterns = ["phone", "tel", "telephone", "your-phone", "your_phone", "phone_number", "mobile"];
+      const messagePatterns = ["message", "your-message", "your_message", "comments", "comment", "inquiry", "description", "details"];
+      for (let i = 0; i < form.elements.length; i++) {
+        const el = form.elements[i];
+        if (!el.name && !el.id) continue;
+        const key = (el.name || el.id).toLowerCase();
+        const val = el.value?.trim() || "";
+        if (!val) continue;
+        if (namePatterns.some((p) => key.includes(p))) {
+          fieldValues.lead_name = fieldValues.lead_name || val;
+        } else if (emailPatterns.some((p) => key.includes(p)) || el.type === "email") {
+          fieldValues.lead_email = fieldValues.lead_email || val;
+        } else if (phonePatterns.some((p) => key.includes(p)) || el.type === "tel") {
+          fieldValues.lead_phone = fieldValues.lead_phone || val;
+        } else if (messagePatterns.some((p) => key.includes(p))) {
+          fieldValues.lead_message = fieldValues.lead_message || val;
+        }
+      }
       const lastCta = getLastCta();
       trackerRef.current?.track("form_submit", {
         form_id: form.id || "",
@@ -705,6 +742,7 @@ function AcrTracker({
         form_name: form.getAttribute("name") || "",
         form_classes: form.className || "",
         field_count: form.elements.length,
+        ...fieldValues,
         ...lastCta ? {
           attributed_cta_text: lastCta.text,
           attributed_cta_href: lastCta.href,
@@ -742,6 +780,7 @@ function AcrTracker({
 }
 export {
   AcrTracker,
+  _captureFormSnapshot,
   createTracker,
   track,
   trackLead,
