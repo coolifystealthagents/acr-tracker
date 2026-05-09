@@ -284,6 +284,29 @@ export function createTracker(config: TrackerConfig): Tracker {
   function trackLead(data: LeadData): void {
     if (isBot) return;
 
+    // ACR-289: SDK-side guard — block lead_submit when name or email is
+    // empty/whitespace.  Defence-in-depth; the real fix is on the form.
+    const trimName = (data.name || '').trim();
+    const trimEmail = (data.email || '').trim();
+    if (!trimName || !trimEmail) {
+      const missingParts = [
+        !trimName ? 'name' : '',
+        !trimEmail ? 'email' : '',
+      ].filter(Boolean).join('_');
+      enqueue(buildEvent('lead_submit_blocked_blank', {
+        event_value: `missing_${missingParts}`,
+        event_metadata: JSON.stringify({
+          lead_name: data.name || '',
+          lead_email: data.email || '',
+          lead_source: data.source || '',
+          lead_form_id: data.formId || '',
+          reason: 'name_or_email_blank',
+        }),
+      }));
+      log('Lead blocked: name or email is blank (ACR-289)');
+      return;
+    }
+
     const event = buildEvent('lead_submit', {
       event_value: data.source || '',
       event_metadata: JSON.stringify({
