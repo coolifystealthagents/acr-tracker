@@ -1,5 +1,6 @@
 import type { TrackerConfig, TrackEvent, TrackPayload, LeadData, FunnelStep, TrackLeadFromFormOptions } from './types';
 import {
+  generateId,
   getAnonymousId,
   getSessionId,
   getUtmParams,
@@ -144,6 +145,7 @@ export function createTracker(config: TrackerConfig): Tracker {
     }
 
     return {
+      client_event_id: generateId(),
       event_type: eventType,
       timestamp: new Date().toISOString(),
       session_id: getSessionId(),
@@ -252,6 +254,11 @@ export function createTracker(config: TrackerConfig): Tracker {
 
     const event = buildEvent('pageview');
     enqueue(event);
+
+    // Reset engagement timer for new page session
+    engagementMs = 0;
+    engagementStart = Date.now();
+    isVisible = document.visibilityState !== 'hidden';
   }
 
   function trackScrollDepth(depth: number): void {

@@ -46,6 +46,7 @@ interface TrackLeadFromFormOptions {
     skipPrefix?: string;
 }
 interface TrackEvent {
+    client_event_id: string;
     event_type: string;
     timestamp: string;
     session_id: string;

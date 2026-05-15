@@ -236,6 +236,7 @@ function createTracker(config) {
       }
     }
     return {
+      client_event_id: generateId(),
       event_type: eventType,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       session_id: getSessionId(),
@@ -323,6 +324,9 @@ function createTracker(config) {
     if (isBot) return;
     const event = buildEvent("pageview");
     enqueue(event);
+    engagementMs = 0;
+    engagementStart = Date.now();
+    isVisible = document.visibilityState !== "hidden";
   }
   function trackScrollDepth(depth) {
     if (isBot) return;
