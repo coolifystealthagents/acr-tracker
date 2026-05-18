@@ -524,6 +524,12 @@ function AcrTracker({
   const reachedThresholdsRef = useRef(/* @__PURE__ */ new Set());
   const throttleRef = useRef(false);
   useEffect(() => {
+    if (window.__ACR_TRACKER_ACTIVE) {
+      if (debug) {
+        console.log("[acr-tracker] Vanilla tracker already active, skipping React component");
+      }
+      return;
+    }
     const config = {
       siteId,
       endpoint,
@@ -628,8 +634,17 @@ function AcrTracker({
   const trackedFormsRef = useRef(/* @__PURE__ */ new Set());
   useEffect(() => {
     trackedFormsRef.current.clear();
-    function getFormFingerprint(form, idx) {
-      return `${form.id || ""}|${form.getAttribute("name") || ""}|${form.action || ""}|${idx}`;
+    document.querySelectorAll("form[data-acr-tracked]").forEach((f) => {
+      f.removeAttribute("data-acr-tracked");
+    });
+    function getFormFingerprint(form) {
+      const id = form.id || "";
+      const name = form.getAttribute("name") || "";
+      const action = form.action || "";
+      if (id || name) {
+        return `${id}|${name}|${action}`;
+      }
+      return `|${form.className || ""}|${action}|${form.elements.length}`;
     }
     function getFormMeta(form, idx) {
       const rect = form.getBoundingClientRect();
@@ -647,10 +662,16 @@ function AcrTracker({
     function scanForms() {
       const forms = document.querySelectorAll("form");
       forms.forEach((form, idx) => {
-        const fp = getFormFingerprint(form, idx);
-        if (trackedFormsRef.current.has(fp)) return;
+        const el = form;
+        if (el.dataset.acrTracked === "1") return;
+        const fp = getFormFingerprint(el);
+        if (trackedFormsRef.current.has(fp)) {
+          el.dataset.acrTracked = "1";
+          return;
+        }
+        el.dataset.acrTracked = "1";
         trackedFormsRef.current.add(fp);
-        const meta = getFormMeta(form, idx);
+        const meta = getFormMeta(el, idx);
         trackerRef.current?.track("form_view", {
           ...meta,
           forms_on_page: forms.length

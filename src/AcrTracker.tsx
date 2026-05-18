@@ -34,6 +34,16 @@ export function AcrTracker({
 
   // Initialize tracker once
   useEffect(() => {
+    // ACR-421 v0.4.9: If the vanilla tracker.js is already active (loaded via
+    // <script src="...">), skip React component initialization entirely to
+    // prevent dual-tracking (duplicate CWV, form_view, scroll_depth events).
+    if ((window as any).__ACR_TRACKER_ACTIVE) {
+      if (debug) {
+        console.log('[acr-tracker] Vanilla tracker already active, skipping React component');
+      }
+      return;
+    }
+
     const config: TrackerConfig = {
       siteId,
       endpoint,
@@ -175,11 +185,27 @@ export function AcrTracker({
   const trackedFormsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    // Reset tracked forms on route change
+    // Reset tracked forms on route change. Also clear DOM markers on forms
+    // that persisted across the SPA route change (e.g. layout footer forms),
+    // so they fire form_view once per pathname as before (ACR-440).
     trackedFormsRef.current.clear();
+    document.querySelectorAll('form[data-acr-tracked]').forEach((f) => {
+      (f as HTMLElement).removeAttribute('data-acr-tracked');
+    });
 
-    function getFormFingerprint(form: HTMLFormElement, idx: number): string {
-      return `${form.id || ''}|${form.getAttribute('name') || ''}|${form.action || ''}|${idx}`;
+    // Stable fingerprint — intentionally excludes DOM index, which is unstable
+    // across React re-renders (ACR-440). Falls back to action+class+field_count
+    // for fully anonymous forms so two distinct anonymous forms on the same
+    // page still get separate form_view events.
+    function getFormFingerprint(form: HTMLFormElement): string {
+      const id = form.id || '';
+      const name = form.getAttribute('name') || '';
+      const action = form.action || '';
+      if (id || name) {
+        return `${id}|${name}|${action}`;
+      }
+      // Anonymous form — disambiguate by class signature + field count
+      return `|${form.className || ''}|${action}|${form.elements.length}`;
     }
 
     function getFormMeta(form: HTMLFormElement, idx: number) {
@@ -199,11 +225,24 @@ export function AcrTracker({
     function scanForms() {
       const forms = document.querySelectorAll('form');
       forms.forEach((form, idx) => {
-        const fp = getFormFingerprint(form as HTMLFormElement, idx);
-        if (trackedFormsRef.current.has(fp)) return;
+        const el = form as HTMLFormElement;
+        // Primary guard: DOM-attached marker survives React re-renders that
+        // reuse the same DOM node. Set BEFORE track() so a synchronous
+        // MutationObserver re-entry from track()-side DOM writes can't loop.
+        if (el.dataset.acrTracked === '1') return;
+
+        // Secondary guard: stable fingerprint catches the case where React
+        // unmounts and remounts the form as a fresh DOM node on the same path.
+        const fp = getFormFingerprint(el);
+        if (trackedFormsRef.current.has(fp)) {
+          el.dataset.acrTracked = '1';
+          return;
+        }
+
+        el.dataset.acrTracked = '1';
         trackedFormsRef.current.add(fp);
 
-        const meta = getFormMeta(form as HTMLFormElement, idx);
+        const meta = getFormMeta(el, idx);
         trackerRef.current?.track('form_view', {
           ...meta,
           forms_on_page: forms.length,
